@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>NCursed-Vue-Bash sample 1</title>
+  <script src="lib/vue.js"></script>
+  <script src="lib/axios.min.js"></script>
+  <link rel="stylesheet" href="lib/bulma.min.css" />
+  <style>
+  .info { color: darkblue; }
+  </style>
+</head>
+<body>
+
+  <div id="main">
+    <a v-for="cmd in suggestions" @click="executeCommand(cmd)" class="button">run {{cmd}}</a>
+    <a @click="clearOutput" class="button is-primary">clear</a>
+    <br/>
+    <input v-model="customCmd" @keydown.enter.prevent="executeCommand(customCmd)"/>
+    <pre v-html="output"></pre>
+    <span v-for="l in outputLines" class="button">{{l}}</span>
+  </div>
+
+  <script>
+  let vm = new Vue({
+    el: '#main',
+    data: () => ({
+      ax: axios.create({  baseURL: 'http://localhost:13579/' }),
+      suggestions: ['ls', 'ls /tmp', 'cat package.json'],
+      customCmd: 'grep -Hn js .',
+      output: "---- output ----\n",
+      outputLines: [],
+    }),
+    methods: {
+      clearOutput() {
+        this.output = "---- output ----\n";
+      },
+      linesAsList(o) {
+        return o.split('\n');
+      },
+      run(cmd) {
+        return this.ax.get('RUN?q='+cmd).then( r => r.data );
+      },
+      executeCommand: function(cmd) {
+        console.log(this, cmd);
+        this.output += "<span class='info'>$ RUNNING $</span> " + cmd + "\n";
+        this.run(cmd).then(o => {
+          this.output += o;
+        });
+        this.run(cmd).then(this.linesAsList).then(l => {this.outputLines = l; });
+      }
+    },
+  });
+  </script>
+</body>
+</html>
