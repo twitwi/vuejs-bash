@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>NCursed-Vue-Bash sample 1</title>
+  <script src="lib/vue.js"></script>
+  <script src="lib/axios.min.js"></script>
+  <link rel="stylesheet" href="lib/picnic.min.css" />
+  <style>
+  body {max-width: 1000px; margin: 0 auto;}
+  .info { color: darkblue; }
+  td { border: 1px solid black; padding: 1em; }
+  input:disabled { color: darkred; }
+  </style>
+</head>
+<body>
+
+  <div id="main">
+
+    <div v-for="r in config.repos" class="card">
+      <header>
+        <h4>{{r.path}}</h4>
+      </header>
+      <section>
+        <ul>
+          <li v-for="rem in r.remotes">{{rem.url}}
+            <c-box :state="rem.verifiedState"></c-box>
+            <a class="button" @click="pull(r, rem)">{{new Date(rem.lastPull)}} <c-box :state="rem.lastPullState"></c-box></a>
+            <a class="button" @click="remotePull(r, rem)">{{rem.lastRemotePull}} <c-box :state="rem.lastRemotePullState"></c-box></a>
+            <a class="button" @click="popupPull(r, rem)">unlock</a>
+          </li>
+        </ul>
+      </section>
+    </div>
+    <a class="button" @click="saveConfig">Save</a>
+    <a class="button" @click="loadConfig">Load</a>
+    <a class="button" @click="startTunnel">Tunnel</a>
+
+  </div>
+
+  <script>
+  let linesAsList = o => o.split('\n');
+  let linesAsGrid = o => linesAsList(o).map(l => l.split(/ +/));
+
+  Vue.component('c-box', {
+    props: ['state'],
+    template: `<div :style="style" :title="state"></div>`,
+    computed: {
+      style() {
+        let c = {true: 'green', ok: 'darkgreen', false: 'orange', error: 'red', checking: 'cyan', 'unset': 'black', pulled: 'blue'};
+        return {
+          'display': 'inline-block',
+          'background-color': c[this.state],
+          'width': '30px',
+          'height': '30px',
+        };
+      },
+    },
+  });
+
+  let vm = new Vue({
+    el: '#main',
+    data: () => ({
+      ax: axios.create({  baseURL: 'http://localhost:13579/' }),
+      config: {repos:[]},
+      //config: {repos: ['/tmp/config', '/tmp/config2', '/tmp/PublicationsAndPresentations/', '/tmp/cv', '/tmp/2018-outilsinfo'].map(v=>({path:v, remotes:[]}))},
+      accessCache: {},
+      configFile: 'repos.cfg.json',
+    }),
+    mounted() {
+      this.loadConfig().then( ()=> {
+        for (var r of this.config.repos) {
+          this.fillInfo(r);
+          for (let rem of r.remotes) {
+            rem.verifiedState = await (this.testRemote(rem.url));
+          }
+        }
+      });
+    },
+    methods: {
+      run(cmd, trim=true) {
+        console.log("cmd", JSON.stringify(cmd))
+        return this.ax.post('RUN', {q:JSON.stringify(['bash', '-c', cmd])}, {transformResponse: c=>c})
+                      .then( r => r.data )
+                      .then( trim ? r => r.trim() : r=>r);
+      },
+      git(repo, cmd) {
+        return this.run('cd '+repo.path+' && '+cmd);
+      },
+      async testRemote(url, onlyAccess=true) {
+        if (url.match(/^https?:\/\//)) {
+          console.log("http like");
+          return false;
+        } else if (url.match(/:/)) {
+          console.log("ssh like?");
+          let parts = url.split(':', 2);
+          if (onlyAccess) {
+            if (parts[0] in this.accessCache) {
+              let ret = await this.accessCache[parts[0]];
+              return ret === 'yes';
+            }
+            this.accessCache[parts[0]] = this.run(`ssh "${parts[0]}" 'echo yes'`)
+            let ret = await this.accessCache[parts[0]];
+            return ret === 'yes';
+          } else {
+            let ret = await this.run(`ssh "${parts[0]}" 'test -d "${parts[1]}" && echo yes'`);
+            return ret === 'yes';
+          }
+        } else {
+          return false;
+        }
+      },
+      async fillInfoInit(r) {
+        let name = 'origin';
+        let url = await this.git(r, 'git ls-remote --get-url ${name}');
+        r.remotes = [{name, url, verifiedState: 'checking'}];
+        for (let rem of r.remotes) {
+          rem.verifiedState = await (this.testRemote(rem.url));
+        }
+      },
+      async pull(r, rem) {
+        let now = Date.now();
+        rem.lastPullState = 'checking';
+        let res = await this.git(r, `GIT_ASKPASS=echo git pull ${rem.name}`);
+        let st = 'unset';
+        let ok = false;
+        if (res === '') st = 'error';
+        else if (res === 'Already up to date.') st = ok = true;
+        else if (res.match(/Merge made by/)) [st,ok] = ['pulled',true];
+        else console.log(res);
+        rem.lastPullState = st;
+        if (ok) {
+          rem.lastPull = now;
+        }
+      },
+      async remotePull(r, rem) {
+        rem.lastRemotePullState = 'checking';
+        let url = rem.url;
+        if (url.match(/^https?:\/\//)) {
+          console.log("http like, will push");
+          rem.lastRemotePullState = 'checking';
+          let res = await this.git(r, `GIT_ASKPASS=echo git push ${rem.name}`);
+          let st = 'unset';
+          if (res === '') st = 'error';
+          /*
+          else if (res === 'Already up to date.') st = ok = true;
+          else if (res.match(/TOTO/)) [st,ok] = ['pulled',true];
+          */
+          else console.log(res);
+          rem.lastRemotePullState = st;
+        } else if (url.match(/:/)) {
+          let parts = url.split(':', 2);
+          this.run(`gnome-terminal -- bash -c "ssh '${parts[0]}' -t bash -i -c \\"'cd ${parts[1]} && git pull'\\" ; echo enter to quit ; read i"`)
+          /*
+          let res = await this.run(`ssh "${parts[0]}" 'cd "${parts[1]}" && git pull && echo YES'`);
+          console.log("TODO", res);
+          rem.lastRemotePullState = 'ok';
+          */
+        } else {
+          console.log(`Remote ${rem} not handled for remotePull`);
+          rem.lastRemotePullState = 'unset';
+        }
+      },
+      popupPull(r, rem) {
+        this.run(`gnome-terminal -- bash -c 'echo start ; git -C "${r.path}" pull ; echo end ; sleep 1'`);
+      },
+      startTunnel() {
+        this.run(`gnome-terminal -- bash -c 'tunnel-joe ; sleep 2'`)
+      },
+      saveConfig() {
+        let filter = (k,v) => {
+          if (k.match(/State$/)) return undefined;
+          return v;
+        };
+        this.run(`cat <<EOF > "${this.configFile}" \n ${JSON.stringify(this.config, filter, 2)}\nEOF\n`);
+      },
+      async loadConfig() {
+        let res = await this.run(`cat "${this.configFile}"`)
+        this.config = JSON.parse(res);
+        for (let r of this.config.repos) {
+          for (let rem of r.remotes) {
+            this.$set(rem, 'verifiedState', false);
+            this.$set(rem, 'lastPullState', false);
+            this.$set(rem, 'lastRemotePullState', false);
+          }
+        }
+      },
+      clearOutput() {
+        this.output = "---- output ----\n";
+      },
+      setLastOutputLines(l) {
+        if (l.length > 0 && l[l.length-1] == '') {
+          l = l.slice(0, l.length-1);
+        }
+        this.lastOutputLines = l;
+      },
+      /* same with async await */
+      executeCommandA: async function(cmd) {
+        /*
+        this.customCmdEnabled = false;
+        this.output += "<span class='info'>$ RUNNING $</span> " + cmd + "\n";
+        let out = await this.run(cmd);
+        this.output += out;
+        this.setLastOutputLines(linesAsList(out));
+        this.lastOutputGrid = linesAsGrid(out);
+        this.customCmdEnabled = true;
+        */
+      }
+    },
+  });
+  </script>
+</body>
+</html>
