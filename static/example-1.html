@@ -54,7 +54,7 @@
         this.lastOutputLines = l;
       },
       run(cmd) {
-        return this.ax.get('RUN?q='+JSON.stringify(['bash', '-c', cmd]), {transformResponse: c=>c})
+        return this.ax.post('RUN', {q:JSON.stringify(['bash', '-c', cmd])}, {transformResponse: c=>c})
                       .then( r => r.data );
       },
       executeCommand: function(cmd) {

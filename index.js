@@ -1,18 +1,20 @@
 
 var express = require('express');
-var app = express();
+var bodyParser = require('body-parser')
 var path = require('path');
 var { spawn } = require('child_process');
 var { StringDecoder } = require('string_decoder');
 
-app.get("/RUN", (request, response) => {
-  //console.log(request, response);
-  let q = request.query.q.trim();
+var app = express();
+app.use(bodyParser.json())
+
+app.post("/RUN", (request, response) => {
+  let q = request.body.q.trim();
   if (! q.startsWith('[')) {
     q = JSON.stringify(q.split(' '));
   }
   q = JSON.parse(q);
-  console.log(request.query.q, "->", q);
+  console.log(request.body.q, "->", q);
 
   let pr = spawn(q[0], q.slice(1));
   let res = '';
