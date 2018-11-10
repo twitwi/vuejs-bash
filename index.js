@@ -3,6 +3,7 @@ var express = require('express');
 var app = express();
 var path = require('path');
 var { spawn } = require('child_process');
+var { StringDecoder } = require('string_decoder');
 
 app.get("/RUN", (request, response) => {
   //console.log(request, response);
@@ -14,22 +15,20 @@ app.get("/RUN", (request, response) => {
   console.log(request.query.q, "->", q);
 
   let pr = spawn(q[0], q.slice(1));
-  let res = null;
+  let res = '';
+
+  let decoder = new StringDecoder('utf8');
+
   pr.stdout.on('data', (data) => {
     //response.setHeader('Content-Type', 'text/html');
-    console.log(data)
-    if (res == null) {
-      res = data;
-    } else {
-      res += data;
-    }
+    response.setHeader('Content-Type', 'text/plain');
+    //console.log(data, data.toString('utf8'));
+    res += decoder.write(data);
+    //console.log(data, data.toString('utf8'), res);
   });
   pr.stdout.on('close', (code) => {
-    if (res == null) {
-      response.send('');
-    } else {
-      response.send(res.toString('utf-8'));
-    }
+    console.log(res);
+    response.send(res);
   });
 });
 
