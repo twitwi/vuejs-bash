@@ -5,49 +5,76 @@
   <title>NCursed-Vue-Bash sample 1</title>
   <script src="lib/vue.js"></script>
   <script src="lib/axios.min.js"></script>
-  <link rel="stylesheet" href="lib/bulma.min.css" />
+  <link rel="stylesheet" href="lib/picnic.min.css" />
   <style>
   .info { color: darkblue; }
+  td { border: 1px solid black; padding: 1em; }
+  input:disabled { color: darkred; }
   </style>
 </head>
 <body>
 
   <div id="main">
-    <a v-for="cmd in suggestions" @click="executeCommand(cmd)" class="button">run {{cmd}}</a>
+    <a v-for="cmd in suggestions" @click="executeCommandA(cmd)" class="button">run {{cmd}}</a>
     <a @click="clearOutput" class="button is-primary">clear</a>
     <br/>
-    <input v-model="customCmd" @keydown.enter.prevent="executeCommand(customCmd)"/>
+    <input v-model="customCmd" :disabled="!customCmdEnabled" @keydown.enter.prevent="executeCommandA(customCmd)"/>
     <pre v-html="output"></pre>
-    <span v-for="l in outputLines" class="button">{{l}}</span>
+    <span v-for="l in lastOutputLines" class="button">{{l}}</span>
+    <table>
+      <tr v-for="l in lastOutputGrid">
+        <td v-for="e in l">{{e}}</td>
+      </tr>
+    </table>
   </div>
 
   <script>
+  let linesAsList = o => o.split('\n');
+  let linesAsGrid = o => linesAsList(o).map(l => l.split(/ +/));
+
   let vm = new Vue({
     el: '#main',
     data: () => ({
       ax: axios.create({  baseURL: 'http://localhost:13579/' }),
       suggestions: ['ls', 'ls /tmp', 'cat package.json'],
-      customCmd: 'grep -Hn js .',
+      customCmd: 'ls -la',
+      customCmdEnabled: true,
       output: "---- output ----\n",
-      outputLines: [],
+      lastOutputLines: [],
+      lastOutputGrid: [],
     }),
     methods: {
       clearOutput() {
         this.output = "---- output ----\n";
       },
-      linesAsList(o) {
-        return o.split('\n');
+      setLastOutputLines(l) {
+        if (l.length > 0 && l[l.length-1] == '') {
+          l = l.slice(0, l.length-1);
+        }
+        this.lastOutputLines = l;
       },
       run(cmd) {
-        return this.ax.get('RUN?q='+cmd).then( r => r.data );
+        return this.ax.get('RUN?q='+JSON.stringify(['bash', '-c', cmd]), {transformResponse: c=>c})
+                      .then( r => r.data );
       },
       executeCommand: function(cmd) {
-        console.log(this, cmd);
+        this.customCmdEnabled = false;
         this.output += "<span class='info'>$ RUNNING $</span> " + cmd + "\n";
-        this.run(cmd).then(o => {
-          this.output += o;
-        });
-        this.run(cmd).then(this.linesAsList).then(l => {this.outputLines = l; });
+        let out = this.run(cmd);
+        out.then(o => { this.output += o; });
+        out.then(linesAsList).then(this.setLastOutputLines);
+        out.then(linesAsGrid).then( v => this.lastOutputGrid = v);
+        out.then(() => {this.customCmdEnabled = true});
+      },
+      /* same with async await */
+      executeCommandA: async function(cmd) {
+        this.customCmdEnabled = false;
+        this.output += "<span class='info'>$ RUNNING $</span> " + cmd + "\n";
+        let out = await this.run(cmd);
+        this.output += out;
+        this.setLastOutputLines(linesAsList(out));
+        this.lastOutputGrid = linesAsGrid(out);
+        this.customCmdEnabled = true;
       }
     },
   });
