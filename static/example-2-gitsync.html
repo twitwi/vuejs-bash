@@ -21,7 +21,7 @@
     <authorized></authorized>
     <div v-for="r in config.repos" class="card">
       <header>
-        <h4>{{r.path}}</h4>
+        <h4>{{r.path}} <a class="button error" @click="fillInfoInit(r)">!</a></h4>
       </header>
       <section>
         <ul>
@@ -29,7 +29,8 @@
             <c-box :state="rem.verifiedState"></c-box>
             <a class="button" @click="pull(r, rem)">{{new Date(rem.lastPull)}} <c-box :state="rem.lastPullState" title="PL"></c-box></a>
             <a class="button" @click="remotePull(r, rem)">{{rem.lastRemotePull}} <c-box :state="rem.lastRemotePullState" title="PH"></c-box></a>
-            <a class="button" @click="popupPull(r, rem)">unlock</a>
+            <a class="button" @click="popupPull(r, rem)">popPL</a>
+            <a class="button" @click="popupRemotePull(r, rem)">popPH</a>
           </li>
         </ul>
       </section>
@@ -130,7 +131,7 @@
     mounted() {
       this.loadConfig().then( ()=> {
         for (var r of this.config.repos) {
-          this.fillInfo(r);
+          this.f(r);
           for (let rem of r.remotes) {
             rem.verifiedState = await (this.testRemote(rem.url));
           }
@@ -167,7 +168,7 @@
       async fillInfoInit(r) {
         let name = 'origin';
         let url = await this.git(r, 'git ls-remote --get-url ${name}');
-        r.remotes = [{name, url, verifiedState: 'checking'}];
+        r.remotes = [{name, url, verifiedState: 'checking', lastPull: -1, lastRemotePull: -1}];
         for (let rem of r.remotes) {
           rem.verifiedState = await (this.testRemote(rem.url));
         }
@@ -185,6 +186,7 @@
         rem.lastPullState = st;
         if (ok) {
           rem.lastPull = now;
+          this.saveConfig();
         }
       },
       async remotePull(r, rem) {
@@ -207,7 +209,7 @@
         } else if (url.match(/:/)) {
           let parts = url.split(':', 2);
           //run(`gnome-terminal -- bash -c "ssh '${parts[0]}' -t bash -i -c \\"'cd ${parts[1]} && git pull'\\" ; echo enter to quit ; read i"`)
-          let res = await run(`ssh "${parts[0]}" 'cd "${parts[1]}" && git pull && echo YES'`);
+          let res = await run(`ssh -t "${parts[0]}" 'cd "${parts[1]}" && git pull && echo YES'`);
           console.log("GO", res);
           if (res === 'YES') {
             ok = true;
@@ -217,6 +219,7 @@
           }
           if (ok) {
             rem.lastRemotePull = now;
+            this.saveConfig();
           }
         } else {
           console.log(`Remote ${rem} not handled for remotePull`);
@@ -225,6 +228,14 @@
       },
       popupPull(r, rem) {
         run(`gnome-terminal -- bash -c 'echo start ; git -C "${r.path}" pull ; echo end ; sleep 1'`);
+      },
+      popupRemotePull(r, rem) {
+        let url = rem.url;
+        if (url.match(/^https?:\/\//)) {
+        } else if (url.match(/:/)) {
+          let parts = url.split(':', 2);
+          run(`gnome-terminal -- ssh -t "${parts[0]}" 'cd "${parts[1]}" && git pull && echo end ; sleep 3'`);
+        }
       },
       saveConfig() {
         let filter = (k,v) => {
