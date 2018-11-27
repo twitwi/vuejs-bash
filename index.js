@@ -37,4 +37,4 @@ app.post("/RUN", (request, response) => {
 app.use(express.static(path.join(__dirname, 'static')));
 
 app.listen(13579);
-console.log('Listening on http://localhost:13579');
+console.log('Listening on http://localhost:13579/');
